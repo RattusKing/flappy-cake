@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Cake - A Sweet Adventure</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        #gameContainer {
+            position: relative;
+            box-shadow: 0 10px 50px rgba(0, 0, 0, 0.5);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        #gameCanvas {
+            display: block;
+            background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+        }
+
+        .ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: none;
+        }
+
+        .screen {
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 20px;
+            pointer-events: auto;
+        }
+
+        .screen.active {
+            display: flex;
+        }
+
+        h1 {
+            font-size: 72px;
+            color: #ff6b9d;
+            text-shadow: 0 0 20px #ff6b9d, 0 0 40px #ff6b9d;
+            margin-bottom: 20px;
+            animation: glow 2s ease-in-out infinite;
+        }
+
+        @keyframes glow {
+            0%, 100% { text-shadow: 0 0 20px #ff6b9d, 0 0 40px #ff6b9d; }
+            50% { text-shadow: 0 0 30px #ff6b9d, 0 0 60px #ff6b9d; }
+        }
+
+        .subtitle {
+            font-size: 24px;
+            color: #feca57;
+            margin-bottom: 30px;
+        }
+
+        button {
+            font-size: 24px;
+            padding: 15px 40px;
+            background: linear-gradient(135deg, #ff6b9d 0%, #c44569 100%);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 5px 20px rgba(255, 107, 157, 0.4);
+            transition: all 0.3s ease;
+            font-weight: bold;
+        }
+
+        button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 30px rgba(255, 107, 157, 0.6);
+        }
+
+        button:active {
+            transform: translateY(-1px);
+        }
+
+        #score {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            font-size: 48px;
+            color: #feca57;
+            text-shadow: 0 0 10px #feca57;
+            pointer-events: none;
+        }
+
+        #highScore {
+            position: absolute;
+            top: 30px;
+            left: 30px;
+            font-size: 24px;
+            color: #48dbfb;
+            text-shadow: 0 0 10px #48dbfb;
+            pointer-events: none;
+        }
+
+        .final-score {
+            font-size: 36px;
+            color: #feca57;
+            margin: 20px 0;
+        }
+
+        .instructions {
+            font-size: 18px;
+            color: #48dbfb;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="480" height="640"></canvas>
+
+        <div class="ui-overlay">
+            <div id="startScreen" class="screen active">
+                <h1>🍰 FLAPPY CAKE 🍰</h1>
+                <p class="subtitle">Navigate through the candles!</p>
+                <button id="startButton">START GAME</button>
+                <p class="instructions">Click or press SPACE to flap</p>
+            </div>
+
+            <div id="gameOverScreen" class="screen">
+                <h1>GAME OVER</h1>
+                <p class="final-score">Score: <span id="finalScore">0</span></p>
+                <p class="final-score">Best: <span id="finalHighScore">0</span></p>
+                <button id="restartButton">PLAY AGAIN</button>
+            </div>
+        </div>
+
+        <div id="score">0</div>
+        <div id="highScore">Best: 0</div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
