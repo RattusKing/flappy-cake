@@ -34,6 +34,7 @@ const game = {
     canvas: null,
     ctx: null,
     running: false,
+    hasStarted: false,
     score: 0,
     highScore: 0,
     frames: 0,
@@ -108,6 +109,7 @@ function initBackground() {
 // Start Game
 function startGame() {
     game.running = true;
+    game.hasStarted = false;
     game.score = 0;
     game.frames = 0;
     game.cake.y = CONFIG.canvas.height / 2;
@@ -125,6 +127,7 @@ function startGame() {
 
 // Jump
 function jump() {
+    game.hasStarted = true;
     game.cake.velocity = CONFIG.cake.jump;
     createParticles(CONFIG.cake.x, game.cake.y, 5, CONFIG.colors.frosting);
     playSound('jump');
@@ -143,22 +146,24 @@ function update() {
 
     game.frames++;
 
-    // Update cake physics
-    game.cake.velocity += CONFIG.cake.gravity;
-    game.cake.velocity = Math.min(game.cake.velocity, CONFIG.cake.maxVelocity);
-    game.cake.y += game.cake.velocity;
+    // Update cake physics (only if game has started)
+    if (game.hasStarted) {
+        game.cake.velocity += CONFIG.cake.gravity;
+        game.cake.velocity = Math.min(game.cake.velocity, CONFIG.cake.maxVelocity);
+        game.cake.y += game.cake.velocity;
 
-    // Update rotation based on velocity
-    game.cake.rotation = Math.min(Math.max(game.cake.velocity * 3, -30), 90);
+        // Update rotation based on velocity
+        game.cake.rotation = Math.min(Math.max(game.cake.velocity * 3, -30), 90);
+    }
 
-    // Check boundaries
-    if (game.cake.y + CONFIG.cake.size > CONFIG.canvas.height || game.cake.y < 0) {
+    // Check boundaries (only if game has started)
+    if (game.hasStarted && (game.cake.y + CONFIG.cake.size > CONFIG.canvas.height || game.cake.y < 0)) {
         gameOver();
         return;
     }
 
-    // Spawn candles
-    if (game.frames % Math.floor(CONFIG.candles.spacing / CONFIG.candles.speed) === 0) {
+    // Spawn candles (only if game has started)
+    if (game.hasStarted && game.frames % Math.floor(CONFIG.candles.spacing / CONFIG.candles.speed) === 0) {
         spawnCandle();
     }
 
