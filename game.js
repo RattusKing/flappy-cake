@@ -165,7 +165,7 @@ function update() {
     // Update candles
     for (let i = game.candles.length - 1; i >= 0; i--) {
         const candle = game.candles[i];
-        candle.x -= CONFIG.candles.speed;
+        candle.x -= candle.speed;
 
         // Remove off-screen candles
         if (candle.x + CONFIG.candles.width < 0) {
@@ -196,17 +196,37 @@ function update() {
     updateBackground();
 }
 
+// Get Difficulty Multipliers Based on Score
+function getDifficulty() {
+    const level = Math.floor(game.score / 10);
+
+    // Gap shrinks: 180 -> 120 (33% reduction at level 5)
+    const gapReduction = Math.min(level * 12, 60);
+    const gap = CONFIG.candles.gap - gapReduction;
+
+    // Speed increases: 2.5 -> 4.5 (80% faster at level 5)
+    const speedIncrease = Math.min(level * 0.4, 2);
+    const speed = CONFIG.candles.speed + speedIncrease;
+
+    // Height randomness increases (more extreme heights)
+    const heightVariance = Math.min(level * 15, 75);
+    const minHeight = CONFIG.candles.minHeight - heightVariance;
+    const maxHeight = CONFIG.candles.maxHeight + heightVariance;
+
+    return { gap, speed, minHeight, maxHeight };
+}
+
 // Spawn Candle
 function spawnCandle() {
-    const minHeight = CONFIG.candles.minHeight;
-    const maxHeight = CONFIG.candles.maxHeight;
-    const topHeight = Math.random() * (maxHeight - minHeight) + minHeight;
+    const difficulty = getDifficulty();
+    const topHeight = Math.random() * (difficulty.maxHeight - difficulty.minHeight) + difficulty.minHeight;
 
     game.candles.push({
         x: CONFIG.canvas.width,
         topHeight: topHeight,
-        bottomY: topHeight + CONFIG.candles.gap,
-        scored: false
+        bottomY: topHeight + difficulty.gap,
+        scored: false,
+        speed: difficulty.speed
     });
 }
 
