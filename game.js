@@ -108,6 +108,11 @@ function initBackground() {
 
 // Start Game
 function startGame() {
+    // Browsers suspend audio until a user gesture; the button click is one
+    if (audioContext.state === 'suspended') {
+        audioContext.resume();
+    }
+
     game.running = true;
     game.hasStarted = false;
     game.score = 0;
@@ -162,8 +167,9 @@ function update() {
         return;
     }
 
-    // Spawn candles (only if game has started)
-    if (game.hasStarted && game.frames % Math.floor(CONFIG.candles.spacing / CONFIG.candles.speed) === 0) {
+    // Spawn candles (only if game has started) - interval scales with current speed
+    // so the pixel distance between candles stays constant as they get faster
+    if (game.hasStarted && game.frames % Math.floor(CONFIG.candles.spacing / getDifficulty().speed) === 0) {
         spawnCandle();
     }
 
@@ -183,7 +189,9 @@ function update() {
             candle.scored = true;
             game.score++;
             updateScoreDisplay();
-            createParticles(CONFIG.cake.x, game.cake.y, 10, CONFIG.colors.frosting);
+            createParticles(CONFIG.cake.x, game.cake.y, 15, CONFIG.colors.frosting);
+            createParticles(CONFIG.cake.x, game.cake.y, 10, CONFIG.colors.cake);
+            animateScorePop();
             playSound('score');
         }
 
@@ -262,12 +270,14 @@ function createParticles(x, y, count, color) {
         game.particles.push({
             x: x,
             y: y,
-            vx: (Math.random() - 0.5) * 4,
-            vy: (Math.random() - 0.5) * 4,
-            life: 30,
-            maxLife: 30,
-            size: Math.random() * 4 + 2,
-            color: color
+            vx: (Math.random() - 0.5) * 6,
+            vy: (Math.random() - 0.5) * 6,
+            life: 40,
+            maxLife: 40,
+            size: Math.random() * 5 + 2,
+            color: color,
+            rotation: Math.random() * Math.PI * 2,
+            rotationSpeed: (Math.random() - 0.5) * 0.2
         });
     }
 }
@@ -278,6 +288,9 @@ function updateParticles() {
         const p = game.particles[i];
         p.x += p.vx;
         p.y += p.vy;
+        p.vx *= 0.98;
+        p.vy *= 0.98;
+        p.rotation += p.rotationSpeed;
         p.life--;
 
         if (p.life <= 0) {
@@ -343,10 +356,25 @@ function render() {
 
     // Draw particles
     game.particles.forEach(p => {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation);
         ctx.globalAlpha = p.life / p.maxLife;
+
+        // Particle glow
+        const particleGlow = ctx.createRadialGradient(0, 0, 0, 0, 0, p.size * 2);
+        particleGlow.addColorStop(0, p.color);
+        particleGlow.addColorStop(0.5, p.color + '80');
+        particleGlow.addColorStop(1, p.color + '00');
+        ctx.fillStyle = particleGlow;
+        ctx.fillRect(-p.size * 2, -p.size * 2, p.size * 4, p.size * 4);
+
+        // Particle core
         ctx.fillStyle = p.color;
-        ctx.fillRect(p.x, p.y, p.size, p.size);
+        ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
+
         ctx.globalAlpha = 1;
+        ctx.restore();
     });
 
     // Draw cake
@@ -363,12 +391,26 @@ function drawCake(ctx) {
 
     const size = CONFIG.cake.size;
 
-    // Cake body
-    ctx.fillStyle = CONFIG.colors.cake;
+    // Shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.fillRect(-size/2 + 2, -size/2 + 4, size, size * 0.7);
+
+    // Cake body with gradient
+    const cakeGradient = ctx.createLinearGradient(-size/2, -size/2, size/2, size/2);
+    cakeGradient.addColorStop(0, CONFIG.colors.cake);
+    cakeGradient.addColorStop(1, '#e54d7d');
+    ctx.fillStyle = cakeGradient;
     ctx.fillRect(-size/2, -size/2, size, size * 0.7);
 
-    // Frosting
-    ctx.fillStyle = CONFIG.colors.frosting;
+    // Cake highlight
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.fillRect(-size/2, -size/2, size * 0.6, size * 0.3);
+
+    // Frosting with gradient
+    const frostingGradient = ctx.createLinearGradient(-size/2, -size/2, size/2, -size/2);
+    frostingGradient.addColorStop(0, CONFIG.colors.frosting);
+    frostingGradient.addColorStop(1, '#ffa502');
+    ctx.fillStyle = frostingGradient;
     ctx.beginPath();
     for (let i = 0; i < 5; i++) {
         const x = -size/2 + (i * size/4);
@@ -376,13 +418,28 @@ function drawCake(ctx) {
     }
     ctx.fill();
 
-    // Cherry on top
-    ctx.fillStyle = '#ee5a6f';
+    // Cherry shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+    ctx.beginPath();
+    ctx.arc(1, -size/2 - 3, size/10, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cherry on top with gradient
+    const cherryGradient = ctx.createRadialGradient(-2, -size/2 - 7, 1, 0, -size/2 - 5, size/10);
+    cherryGradient.addColorStop(0, '#ff6b9d');
+    cherryGradient.addColorStop(1, '#ee5a6f');
+    ctx.fillStyle = cherryGradient;
     ctx.beginPath();
     ctx.arc(0, -size/2 - 5, size/10, 0, Math.PI * 2);
     ctx.fill();
 
-    // Eye
+    // Cherry highlight
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.beginPath();
+    ctx.arc(-2, -size/2 - 7, size/20, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Eye outer
     ctx.fillStyle = '#000';
     ctx.beginPath();
     ctx.arc(-size/6, 0, size/12, 0, Math.PI * 2);
@@ -392,6 +449,12 @@ function drawCake(ctx) {
     ctx.fillStyle = '#fff';
     ctx.beginPath();
     ctx.arc(-size/6 - 2, -2, size/24, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Eye shine
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.beginPath();
+    ctx.arc(-size/6 - 3, -3, size/36, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
@@ -411,38 +474,71 @@ function drawCandle(ctx, candle) {
 
 // Draw Single Candle
 function drawSingleCandle(ctx, x, y, width, height) {
-    // Candle body
+    // Candle shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+    ctx.fillRect(x + 2, y + 2, width, height);
+
+    // Candle body with gradient
     const gradient = ctx.createLinearGradient(x, 0, x + width, 0);
     gradient.addColorStop(0, CONFIG.colors.candle);
-    gradient.addColorStop(0.5, '#ff8fa3');
+    gradient.addColorStop(0.3, '#ff8fa3');
+    gradient.addColorStop(0.7, '#ff8fa3');
     gradient.addColorStop(1, CONFIG.colors.candle);
     ctx.fillStyle = gradient;
     ctx.fillRect(x, y, width, height);
 
+    // Candle highlight
+    const highlightGradient = ctx.createLinearGradient(x, 0, x + width/3, 0);
+    highlightGradient.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
+    highlightGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = highlightGradient;
+    ctx.fillRect(x, y, width/3, height);
+
     // Candle stripes
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
     for (let i = 0; i < height; i += 20) {
-        ctx.fillRect(x, y + i, width, 5);
+        ctx.fillRect(x, y + i, width, 4);
     }
 
     // Flame at bottom of top candle or top of bottom candle
     const flameY = y === 0 ? height - 20 : y + 10;
 
-    // Flame glow
-    const flameGradient = ctx.createRadialGradient(x + width/2, flameY, 5, x + width/2, flameY, 15);
-    flameGradient.addColorStop(0, 'rgba(254, 202, 87, 0.8)');
+    // Outer flame glow
+    const outerGlow = ctx.createRadialGradient(x + width/2, flameY, 2, x + width/2, flameY, 20);
+    outerGlow.addColorStop(0, 'rgba(254, 202, 87, 0.6)');
+    outerGlow.addColorStop(0.5, 'rgba(254, 202, 87, 0.3)');
+    outerGlow.addColorStop(1, 'rgba(254, 202, 87, 0)');
+    ctx.fillStyle = outerGlow;
+    ctx.beginPath();
+    ctx.arc(x + width/2, flameY, 20, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Inner flame glow
+    const flameGradient = ctx.createRadialGradient(x + width/2, flameY, 2, x + width/2, flameY, 12);
+    flameGradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+    flameGradient.addColorStop(0.3, 'rgba(254, 202, 87, 0.8)');
     flameGradient.addColorStop(1, 'rgba(254, 202, 87, 0)');
     ctx.fillStyle = flameGradient;
     ctx.beginPath();
-    ctx.arc(x + width/2, flameY, 15, 0, Math.PI * 2);
+    ctx.arc(x + width/2, flameY, 12, 0, Math.PI * 2);
     ctx.fill();
 
-    // Flame
+    // Flame shape with animation
+    const flameFlicker = Math.sin(Date.now() / 100) * 2;
     ctx.fillStyle = CONFIG.colors.flame;
     ctx.beginPath();
-    ctx.moveTo(x + width/2, flameY - 10);
-    ctx.lineTo(x + width/2 - 5, flameY + 5);
-    ctx.lineTo(x + width/2 + 5, flameY + 5);
+    ctx.moveTo(x + width/2, flameY - 12 + flameFlicker);
+    ctx.lineTo(x + width/2 - 6, flameY + 5);
+    ctx.lineTo(x + width/2 + 6, flameY + 5);
+    ctx.closePath();
+    ctx.fill();
+
+    // Inner flame highlight
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.beginPath();
+    ctx.moveTo(x + width/2, flameY - 8 + flameFlicker);
+    ctx.lineTo(x + width/2 - 3, flameY + 2);
+    ctx.lineTo(x + width/2 + 3, flameY + 2);
     ctx.closePath();
     ctx.fill();
 }
@@ -473,6 +569,15 @@ function gameOver() {
 // Update Score Display
 function updateScoreDisplay() {
     document.getElementById('score').textContent = game.score;
+}
+
+// Animate Score Pop
+function animateScorePop() {
+    const scoreElement = document.getElementById('score');
+    scoreElement.style.animation = 'none';
+    setTimeout(() => {
+        scoreElement.style.animation = 'scorePop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)';
+    }, 10);
 }
 
 // Update High Score Display
