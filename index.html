@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Flappy Cake - A Sweet Adventure</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,31 +14,43 @@
             box-sizing: border-box;
         }
 
+        html, body {
+            height: 100%;
+        }
+
         body {
             overflow: hidden;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            font-family: 'Fredoka', 'Arial', sans-serif;
+            font-family: 'Fredoka', 'Arial Rounded MT Bold', 'Arial', sans-serif;
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 100vh;
+            height: 100dvh;
+            padding: 16px;
             position: relative;
+            -webkit-user-select: none;
+            user-select: none;
         }
 
         body::before {
             content: '';
             position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
+            inset: 0;
             background: radial-gradient(circle at 20% 50%, rgba(255, 107, 157, 0.3) 0%, transparent 50%),
                         radial-gradient(circle at 80% 80%, rgba(72, 219, 251, 0.3) 0%, transparent 50%);
             pointer-events: none;
         }
 
+        /*
+         * The game keeps a fixed 480x640 logical resolution, but the container
+         * scales to fill the viewport (keeping the 3:4 aspect ratio). All UI
+         * sizes use container-query units (cqw) so the overlay scales with it.
+         */
         #gameContainer {
             position: relative;
+            width: min(100%, calc((100dvh - 32px) * 0.75));
+            aspect-ratio: 3 / 4;
+            container-type: inline-size;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6),
                         0 0 0 1px rgba(255, 255, 255, 0.1);
             border-radius: 20px;
@@ -48,15 +60,16 @@
 
         #gameCanvas {
             display: block;
+            width: 100%;
+            height: 100%;
             background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+            touch-action: none;
+            cursor: pointer;
         }
 
         .ui-overlay {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            inset: 0;
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -70,8 +83,9 @@
             justify-content: center;
             align-items: center;
             text-align: center;
-            padding: 20px;
+            padding: 4cqw;
             pointer-events: auto;
+            width: 100%;
         }
 
         .screen.active {
@@ -79,15 +93,16 @@
         }
 
         h1 {
-            font-size: 72px;
+            font-size: 14cqw;
+            line-height: 1.05;
             font-weight: 700;
             color: #fff;
             text-shadow: 0 0 20px #ff6b9d,
                          0 0 40px #ff6b9d,
                          0 4px 8px rgba(0, 0, 0, 0.3);
-            margin-bottom: 20px;
+            margin-bottom: 4cqw;
             animation: glow 2s ease-in-out infinite;
-            letter-spacing: 2px;
+            letter-spacing: 0.03em;
         }
 
         @keyframes glow {
@@ -105,29 +120,30 @@
         }
 
         .subtitle {
-            font-size: 24px;
+            font-size: 5cqw;
             font-weight: 400;
             color: #feca57;
-            margin-bottom: 30px;
+            margin-bottom: 6cqw;
             text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
 
         button {
-            font-family: 'Fredoka', 'Arial', sans-serif;
-            font-size: 24px;
+            font-family: inherit;
+            font-size: 5cqw;
             font-weight: 600;
-            padding: 18px 48px;
+            padding: 3.5cqw 10cqw;
             background: linear-gradient(135deg, #ff6b9d 0%, #c44569 100%);
             color: white;
             border: none;
-            border-radius: 50px;
+            border-radius: 100cqw;
             cursor: pointer;
             box-shadow: 0 8px 24px rgba(255, 107, 157, 0.5),
                         0 0 0 1px rgba(255, 255, 255, 0.1) inset;
             transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
             position: relative;
             overflow: hidden;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.02em;
+            -webkit-tap-highlight-color: transparent;
         }
 
         button::before {
@@ -158,16 +174,17 @@
 
         #score {
             position: absolute;
-            top: 30px;
-            right: 30px;
-            font-size: 56px;
+            top: 4cqw;
+            right: 6cqw;
+            font-size: 12cqw;
+            line-height: 1;
             font-weight: 700;
             color: #fff;
             text-shadow: 0 0 20px #feca57,
                          0 0 40px #feca57,
                          0 4px 8px rgba(0, 0, 0, 0.4);
             pointer-events: none;
-            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+            font-variant-numeric: tabular-nums;
         }
 
         @keyframes scorePop {
@@ -178,36 +195,54 @@
 
         #highScore {
             position: absolute;
-            top: 30px;
-            left: 30px;
-            font-size: 24px;
+            top: 5cqw;
+            left: 5cqw;
+            font-size: 4.5cqw;
             font-weight: 600;
             color: #fff;
             text-shadow: 0 0 15px #48dbfb,
                          0 2px 4px rgba(0, 0, 0, 0.3);
             pointer-events: none;
             background: rgba(0, 0, 0, 0.3);
-            padding: 10px 20px;
-            border-radius: 20px;
+            padding: 2cqw 4cqw;
+            border-radius: 100cqw;
             backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
         }
 
         .final-score {
-            font-size: 36px;
+            font-size: 7cqw;
             font-weight: 600;
             color: #fff;
-            margin: 20px 0;
+            margin: 2.5cqw 0;
             text-shadow: 0 0 15px #feca57,
                          0 2px 4px rgba(0, 0, 0, 0.3);
         }
 
+        .final-score + button {
+            margin-top: 3cqw;
+        }
+
         .instructions {
-            font-size: 18px;
+            font-size: 3.75cqw;
             font-weight: 400;
             color: #48dbfb;
-            margin-top: 20px;
+            margin-top: 5cqw;
             text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
             opacity: 0.9;
+        }
+
+        /* Edge-to-edge on phones */
+        @media (max-width: 520px) {
+            body {
+                padding: 0;
+            }
+
+            #gameContainer {
+                width: min(100%, calc(100dvh * 0.75));
+                border-radius: 0;
+                box-shadow: none;
+            }
         }
     </style>
 </head>
@@ -220,7 +255,7 @@
                 <h1>🍰 FLAPPY CAKE 🍰</h1>
                 <p class="subtitle">Navigate through the candles!</p>
                 <button id="startButton">START GAME</button>
-                <p class="instructions">Click or press SPACE to flap</p>
+                <p class="instructions">Click, tap or press SPACE to flap</p>
             </div>
 
             <div id="gameOverScreen" class="screen">
