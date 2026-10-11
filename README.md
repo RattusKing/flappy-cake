@@ -19,6 +19,23 @@ A cute, professional 2D browser game where you guide a kawaii cake through candl
 - Avoid hitting the candles or the ground/ceiling
 - Try to beat your high score!
 
+## Power-Ups
+
+Glowing orbs occasionally float between the candles (roughly one every 9 candles). Fly through one to grab it. They only last for the current run.
+
+| Item | Effect | Rarity |
+| --- | --- | --- |
+| ⚡ Speed Up | Everything scrolls 1.3x faster for 6s | Common |
+| 🐢 Slow Down | Everything scrolls 1.3x slower for 6s | Common |
+| 🧁 Mini Cake | Smaller cake and hitbox for 7s | Common |
+| 🍦 Double Scoop | Each candle is worth 2 points for 8s | Common |
+| 🔮 X-Ray Frosting | Shows where the next two gaps will be for 10s | Uncommon |
+| 🧲 Magnet | Pulls pickups toward you, and they show up more often, for 10s | Uncommon |
+| 🛡️ Shield | Absorbs one hit (candle, floor or ceiling) | Uncommon |
+| 💨 Candle Snuffer | Blows out the next candle so you can fly through it | Uncommon |
+| 👻 Ghost Rush | Pass through candles at 1.5x speed for 5s | Rare |
+| ❤️ Extra Life | One revive that keeps your score | Rare |
+
 ## Deployment to GitHub Pages
 
 ### Option 1: Quick Deploy (Recommended)

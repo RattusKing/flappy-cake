@@ -24,6 +24,20 @@ const CONFIG = {
         // and flame. Touching the flame counts as a hit.
         flameZone: 30
     },
+    powerups: {
+        radius: 16,
+        // Minimum candles between pickups, then a per-candle roll
+        cooldown: 5,
+        chance: 0.2,
+        // While the magnet is active the cooldown is skipped and the roll is higher
+        magnetChance: 0.35,
+        magnetRange: 220,
+        // Brief invulnerability after a shield pops, a revive, or ghost/shrink ending
+        graceFrames: 90,
+        speedFactor: 1.3,
+        ghostSpeedFactor: 1.5,
+        shrinkScale: 0.6
+    },
     colors: {
         cake: '#ff6b9d',
         frosting: '#feca57',
@@ -32,6 +46,21 @@ const CONFIG = {
         background: ['#1a1a2e', '#16213e'],
         neon: ['#48dbfb', '#0abde3', '#10ac84', '#00d2d3']
     }
+};
+
+// Power-ups. weight = relative spawn odds; duration is in frames (60 = 1s),
+// and items without one are instant or held until used.
+const POWERUPS = {
+    speedUp:    { icon: '⚡', label: 'SPEED UP',       color: '#feca57', weight: 14, duration: 360 },
+    slowDown:   { icon: '🐢', label: 'SLOW DOWN',      color: '#1dd1a1', weight: 14, duration: 360 },
+    shrink:     { icon: '🧁', label: 'MINI CAKE',      color: '#ff9ff3', weight: 12, duration: 420 },
+    multiplier: { icon: '🍦', label: 'DOUBLE SCOOP',   color: '#ffeaa7', weight: 12, duration: 480 },
+    preview:    { icon: '🔮', label: 'X-RAY FROSTING', color: '#a29bfe', weight: 10, duration: 600 },
+    magnet:     { icon: '🧲', label: 'MAGNET',         color: '#ff6b6b', weight: 10, duration: 600 },
+    shield:     { icon: '🛡️', label: 'SHIELD',         color: '#48dbfb', weight: 8 },
+    snuffer:    { icon: '💨', label: 'CANDLE SNUFFER', color: '#dfe6e9', weight: 8 },
+    ghost:      { icon: '👻', label: 'GHOST RUSH',     color: '#c8d6e5', weight: 6, duration: 300 },
+    revive:     { icon: '❤️', label: 'EXTRA LIFE',     color: '#ff4757', weight: 4 }
 };
 
 // Game State
@@ -52,6 +81,18 @@ const game = {
     },
     candles: [],
     particles: [],
+    // Pre-rolled top heights for upcoming candles (lets X-ray preview them)
+    gapQueue: [],
+    spawnDistance: 0,
+    pickups: [],
+    candlesSincePickup: 0,
+    // Timed power-ups: type -> frames remaining
+    effects: {},
+    shield: false,
+    revive: false,
+    grace: 0,
+    pendingSnuff: 0,
+    toasts: [],
     background: {
         stars: [],
         bokeh: []
@@ -165,6 +206,16 @@ function startGame() {
     game.cake.rotation = 0;
     game.candles = [];
     game.particles = [];
+    game.gapQueue = [];
+    game.spawnDistance = CONFIG.candles.spacing / 2;
+    game.pickups = [];
+    game.candlesSincePickup = 0;
+    game.effects = {};
+    game.shield = false;
+    game.revive = false;
+    game.grace = 0;
+    game.pendingSnuff = 0;
+    game.toasts = [];
 
     // Hide screens
     document.getElementById('startScreen').classList.remove('active');
@@ -194,6 +245,9 @@ function update() {
 
     game.frames++;
 
+    updateEffects();
+    const speedMul = speedMultiplier();
+
     // Update cake physics (only if game has started)
     if (game.hasStarted) {
         game.cake.velocity += CONFIG.cake.gravity;
@@ -205,23 +259,35 @@ function update() {
     }
 
     // Check boundaries (only if game has started)
-    const half = CONFIG.cake.size / 2;
+    const half = cakeHalf();
     if (game.hasStarted && (game.cake.y + half > groundY() || game.cake.y - half < 0)) {
+        const hitFloor = game.cake.y + half > groundY();
         game.cake.y = Math.min(Math.max(game.cake.y, half), groundY() - half);
-        gameOver();
-        return;
+        if (game.grace <= 0 && takeHit()) return;
+        // Survived: bounce off the floor or ceiling
+        game.cake.velocity = hitFloor ? CONFIG.cake.jump : 2;
     }
 
-    // Spawn candles (only if game has started) - interval scales with current speed
-    // so the pixel distance between candles stays constant as they get faster
-    if (game.hasStarted && game.frames % Math.floor(CONFIG.candles.spacing / getDifficulty().speed) === 0) {
-        spawnCandle();
+    // Spawn candles by distance travelled so spacing stays constant at any speed
+    if (game.hasStarted) {
+        game.spawnDistance += getDifficulty().speed * speedMul;
+        if (game.spawnDistance >= CONFIG.candles.spacing) {
+            game.spawnDistance -= CONFIG.candles.spacing;
+            spawnCandle();
+        }
     }
+
+    // Ghost trail
+    if (game.effects.ghost && game.frames % 2 === 0) {
+        createParticles(CONFIG.cake.x - half, game.cake.y, 1, POWERUPS.ghost.color);
+    }
+
+    const ignoreCandles = game.effects.ghost || game.grace > 0;
 
     // Update candles
     for (let i = game.candles.length - 1; i >= 0; i--) {
         const candle = game.candles[i];
-        candle.x -= candle.speed;
+        candle.x -= candle.speed * speedMul;
 
         // Remove off-screen candles
         if (candle.x + CONFIG.candles.width < 0) {
@@ -232,7 +298,7 @@ function update() {
         // Score point
         if (!candle.scored && candle.x + CONFIG.candles.width < CONFIG.cake.x) {
             candle.scored = true;
-            game.score++;
+            game.score += game.effects.multiplier ? 2 : 1;
             updateScoreDisplay();
             createParticles(CONFIG.cake.x, game.cake.y, 15, CONFIG.colors.frosting);
             createParticles(CONFIG.cake.x, game.cake.y, 10, CONFIG.colors.cake);
@@ -241,11 +307,14 @@ function update() {
         }
 
         // Collision detection
-        if (checkCollision(candle)) {
-            gameOver();
-            return;
+        if (!candle.snuffed && !ignoreCandles && checkCollision(candle)) {
+            if (takeHit()) return;
+            break;
         }
     }
+
+    updatePickups(speedMul);
+    updateToasts();
 
     // Update particles
     updateParticles();
@@ -274,28 +343,236 @@ function getDifficulty() {
     return { gap, speed, minHeight, maxHeight };
 }
 
+function rollTopHeight() {
+    const difficulty = getDifficulty();
+    return Math.random() * (difficulty.maxHeight - difficulty.minHeight) + difficulty.minHeight;
+}
+
 // Spawn Candle
 function spawnCandle() {
     const difficulty = getDifficulty();
-    const topHeight = Math.random() * (difficulty.maxHeight - difficulty.minHeight) + difficulty.minHeight;
+    while (game.gapQueue.length < 3) {
+        game.gapQueue.push(rollTopHeight());
+    }
+    const topHeight = game.gapQueue.shift();
+    game.gapQueue.push(rollTopHeight());
 
-    game.candles.push({
+    const candle = {
         x: CONFIG.canvas.width,
         topHeight: topHeight,
         bottomY: topHeight + difficulty.gap,
         scored: false,
+        snuffed: false,
         speed: difficulty.speed,
         // Random phase so the flames don't all flicker in sync
         flicker: Math.random() * Math.PI * 2
+    };
+    if (game.pendingSnuff > 0) {
+        candle.snuffed = true;
+        game.pendingSnuff--;
+    }
+    game.candles.push(candle);
+
+    maybeSpawnPickup(candle);
+}
+
+// Half the cake's current hitbox size (smaller while shrunk)
+function cakeHalf() {
+    const scale = game.effects.shrink ? CONFIG.powerups.shrinkScale : 1;
+    return CONFIG.cake.size * scale / 2;
+}
+
+function speedMultiplier() {
+    const P = CONFIG.powerups;
+    let mul = 1;
+    if (game.effects.speedUp) mul *= P.speedFactor;
+    if (game.effects.slowDown) mul /= P.speedFactor;
+    if (game.effects.ghost) mul *= P.ghostSpeedFactor;
+    return mul;
+}
+
+function updateEffects() {
+    for (const type in game.effects) {
+        game.effects[type]--;
+        if (game.effects[type] <= 0) {
+            delete game.effects[type];
+            // Don't kill the player the instant they turn solid or grow back
+            if (type === 'ghost' || type === 'shrink') {
+                game.grace = Math.max(game.grace, CONFIG.powerups.graceFrames);
+            }
+        }
+    }
+    if (game.grace > 0) game.grace--;
+}
+
+function rollPowerupType() {
+    const types = Object.keys(POWERUPS).filter(type =>
+        !(type === 'shield' && game.shield) &&
+        !(type === 'revive' && game.revive) &&
+        !(type === 'magnet' && game.effects.magnet)
+    );
+    const total = types.reduce((sum, type) => sum + POWERUPS[type].weight, 0);
+    let roll = Math.random() * total;
+    for (const type of types) {
+        roll -= POWERUPS[type].weight;
+        if (roll < 0) return type;
+    }
+    return types[types.length - 1];
+}
+
+// Maybe drop a pickup halfway between this candle and the next one, roughly
+// on the line between their two gaps so it's reachable with a bit of effort.
+function maybeSpawnPickup(candle) {
+    const P = CONFIG.powerups;
+    game.candlesSincePickup++;
+
+    if (game.pickups.length > 0) return;
+    const magnet = !!game.effects.magnet;
+    if (!magnet && game.candlesSincePickup < P.cooldown) return;
+    if (Math.random() >= (magnet ? P.magnetChance : P.chance)) return;
+
+    const gap = getDifficulty().gap;
+    const here = candle.topHeight + gap / 2;
+    const next = game.gapQueue[0] + gap / 2;
+    const margin = 60;
+    const y = Math.min(Math.max((here + next) / 2 + (Math.random() - 0.5) * 80, margin), groundY() - margin);
+
+    game.pickups.push({
+        type: rollPowerupType(),
+        x: candle.x + CONFIG.candles.width / 2 + CONFIG.candles.spacing / 2,
+        baseY: y,
+        y: y,
+        speed: candle.speed,
+        bob: Math.random() * Math.PI * 2
     });
+    game.candlesSincePickup = 0;
+}
+
+function updatePickups(speedMul) {
+    const P = CONFIG.powerups;
+    for (let i = game.pickups.length - 1; i >= 0; i--) {
+        const p = game.pickups[i];
+        p.x -= p.speed * speedMul;
+        p.bob += 0.08;
+
+        if (game.effects.magnet) {
+            const dx = CONFIG.cake.x - p.x;
+            const dy = game.cake.y - p.baseY;
+            if (Math.hypot(dx, dy) < P.magnetRange) {
+                p.x += dx * 0.12;
+                p.baseY += dy * 0.12;
+            }
+        }
+        p.y = p.baseY + Math.sin(p.bob) * 6;
+
+        if (p.x + P.radius < 0) {
+            game.pickups.splice(i, 1);
+            continue;
+        }
+
+        if (Math.hypot(CONFIG.cake.x - p.x, game.cake.y - p.y) < cakeHalf() + P.radius) {
+            game.pickups.splice(i, 1);
+            collectPowerup(p);
+        }
+    }
+}
+
+function collectPowerup(pickup) {
+    const type = pickup.type;
+    const def = POWERUPS[type];
+
+    if (def.duration) game.effects[type] = def.duration;
+    if (type === 'speedUp') delete game.effects.slowDown;
+    if (type === 'slowDown') delete game.effects.speedUp;
+    if (type === 'shield') game.shield = true;
+    if (type === 'revive') game.revive = true;
+    if (type === 'snuffer') snuffNextCandle();
+
+    showToast(def.icon + ' ' + def.label, def.color);
+    createParticles(pickup.x, pickup.y, 20, def.color);
+    createParticles(pickup.x, pickup.y, 8, '#ffffff');
+    playSound('powerup');
+}
+
+// Blow out the next candle ahead of the cake (or the next one to spawn)
+function snuffNextCandle() {
+    const front = CONFIG.cake.x + cakeHalf();
+    const candle = game.candles.find(c => !c.snuffed && c.x > front);
+    if (candle) {
+        snuffCandle(candle);
+    } else {
+        game.pendingSnuff++;
+    }
+}
+
+function snuffCandle(candle) {
+    candle.snuffed = true;
+    const x = candle.x + CONFIG.candles.width / 2;
+    createParticles(x, candle.topHeight, 8, '#b2bec3');
+    createParticles(x, candle.bottomY, 8, '#b2bec3');
+}
+
+// Something hit the cake. Shield absorbs it, then a revive, otherwise game
+// over. Returns true if the run ended.
+function takeHit() {
+    if (game.shield) {
+        game.shield = false;
+        game.grace = CONFIG.powerups.graceFrames;
+        createParticles(CONFIG.cake.x, game.cake.y, 25, POWERUPS.shield.color);
+        showToast('SHIELD POPPED!', POWERUPS.shield.color);
+        playSound('shield');
+        return false;
+    }
+
+    if (game.revive) {
+        game.revive = false;
+        reviveCake();
+        return false;
+    }
+
+    gameOver();
+    return true;
+}
+
+// Second chance: score and timers are kept, the candles right in front of the
+// cake are blown out, and it gets a moment of invulnerability.
+function reviveCake() {
+    const reach = CONFIG.cake.x + 220;
+    game.candles.forEach(c => {
+        if (!c.snuffed && c.x + CONFIG.candles.width > CONFIG.cake.x - cakeHalf() && c.x < reach) {
+            snuffCandle(c);
+        }
+    });
+
+    const nextCandle = game.candles.find(c => !c.snuffed && c.x > CONFIG.cake.x);
+    game.cake.y = nextCandle ? (nextCandle.topHeight + nextCandle.bottomY) / 2 : CONFIG.canvas.height / 2;
+    game.cake.velocity = CONFIG.cake.jump * 0.6;
+    game.grace = CONFIG.powerups.graceFrames * 1.5;
+
+    createParticles(CONFIG.cake.x, game.cake.y, 30, POWERUPS.revive.color);
+    createParticles(CONFIG.cake.x, game.cake.y, 15, '#ffffff');
+    showToast('❤️ REVIVED!', POWERUPS.revive.color);
+    playSound('revive');
+}
+
+function showToast(text, color) {
+    game.toasts.push({ text, color, life: 80, maxLife: 80 });
+    if (game.toasts.length > 3) game.toasts.shift();
+}
+
+function updateToasts() {
+    for (let i = game.toasts.length - 1; i >= 0; i--) {
+        if (--game.toasts[i].life <= 0) game.toasts.splice(i, 1);
+    }
 }
 
 // Check Collision
 function checkCollision(candle) {
-    const cakeLeft = CONFIG.cake.x - CONFIG.cake.size / 2;
-    const cakeRight = CONFIG.cake.x + CONFIG.cake.size / 2;
-    const cakeTop = game.cake.y - CONFIG.cake.size / 2;
-    const cakeBottom = game.cake.y + CONFIG.cake.size / 2;
+    const half = cakeHalf();
+    const cakeLeft = CONFIG.cake.x - half;
+    const cakeRight = CONFIG.cake.x + half;
+    const cakeTop = game.cake.y - half;
+    const cakeBottom = game.cake.y + half;
 
     const candleLeft = candle.x;
     const candleRight = candle.x + CONFIG.candles.width;
@@ -411,6 +688,12 @@ function render() {
         drawCandle(ctx, candle);
     });
 
+    if (game.effects.preview) {
+        drawPreview(ctx);
+    }
+
+    game.pickups.forEach(p => drawPickup(ctx, p));
+
     // Draw particles
     game.particles.forEach(p => {
         ctx.save();
@@ -437,7 +720,134 @@ function render() {
     // Draw cake
     if (game.running) {
         drawCake(ctx);
+        drawPowerupHud(ctx);
     }
+
+    drawToasts(ctx);
+}
+
+// Pickup: glowing orb in the item's colour with its icon inside
+function drawPickup(ctx, p) {
+    const def = POWERUPS[p.type];
+    const r = CONFIG.powerups.radius;
+    const pulse = 1 + Math.sin(p.bob * 1.5) * 0.08;
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+
+    const glow = ctx.createRadialGradient(0, 0, r * 0.4, 0, 0, r * 2.2);
+    glow.addColorStop(0, def.color + 'aa');
+    glow.addColorStop(1, def.color + '00');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 2.2 * pulse, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(20, 16, 40, 0.75)';
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = def.color;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    ctx.font = `${Math.round(r * 1.1)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // Colour emoji ignore fillStyle; this keeps monochrome fallbacks visible
+    ctx.fillStyle = '#fff';
+    ctx.fillText(def.icon, 0, 1);
+    ctx.restore();
+}
+
+// X-ray frosting: glowing markers on the right edge showing where the next
+// two (not yet visible) gaps will be
+function drawPreview(ctx) {
+    const gap = getDifficulty().gap;
+    const color = POWERUPS.preview.color;
+    ctx.save();
+    game.gapQueue.slice(0, 2).forEach((top, i) => {
+        const x = CONFIG.canvas.width - 10 - i * 12;
+        ctx.globalAlpha = i === 0 ? 0.85 : 0.4;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 12;
+        ctx.setLineDash([6, 5]);
+        ctx.beginPath();
+        ctx.moveTo(x, top);
+        ctx.lineTo(x, top + gap);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        [top, top + gap].forEach(y => {
+            ctx.beginPath();
+            ctx.moveTo(x - 7, y);
+            ctx.lineTo(x + 3, y);
+            ctx.stroke();
+        });
+    });
+    ctx.restore();
+}
+
+// Active power-ups under the Best pill: timed ones show a draining ring
+function drawPowerupHud(ctx) {
+    const badges = Object.keys(game.effects).map(type => ({
+        type, fraction: game.effects[type] / POWERUPS[type].duration
+    }));
+    if (game.shield) badges.push({ type: 'shield', fraction: 1 });
+    if (game.revive) badges.push({ type: 'revive', fraction: 1 });
+
+    const r = 14;
+    badges.forEach((badge, i) => {
+        const def = POWERUPS[badge.type];
+        const x = 24 + r + i * (r * 2 + 8);
+        const y = 92;
+        // Blink during the last two seconds
+        const ending = badge.fraction < 1 && game.effects[badge.type] < 120;
+        ctx.save();
+        ctx.globalAlpha = ending && Math.floor(game.frames / 8) % 2 ? 0.4 : 1;
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = def.color;
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * badge.fraction);
+        ctx.stroke();
+
+        ctx.font = '15px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(def.icon, x, y + 1);
+        ctx.restore();
+    });
+}
+
+// Floating "you got X" labels in the middle of the screen
+function drawToasts(ctx) {
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = "700 26px Fredoka, 'Arial Rounded MT Bold', Arial, sans-serif";
+    game.toasts.forEach((toast, i) => {
+        const age = 1 - toast.life / toast.maxLife;
+        const y = 200 - age * 30 + i * 34;
+        ctx.globalAlpha = Math.min(1, toast.life / 20);
+        ctx.shadowColor = toast.color;
+        ctx.shadowBlur = 16;
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.strokeText(toast.text, CONFIG.canvas.width / 2, y);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(toast.text, CONFIG.canvas.width / 2, y);
+    });
+    ctx.restore();
 }
 
 // Draw Cake
@@ -446,7 +856,33 @@ function render() {
 function drawCake(ctx) {
     ctx.save();
     ctx.translate(CONFIG.cake.x, game.cake.y);
+
+    // Shield bubble (drawn unrotated so it stays round)
+    if (game.shield) {
+        const br = cakeHalf() + 12 + Math.sin(game.frames * 0.1) * 1.5;
+        const bubble = ctx.createRadialGradient(0, 0, br * 0.6, 0, 0, br);
+        bubble.addColorStop(0, 'rgba(72, 219, 251, 0)');
+        bubble.addColorStop(0.85, 'rgba(72, 219, 251, 0.22)');
+        bubble.addColorStop(1, 'rgba(72, 219, 251, 0.6)');
+        ctx.fillStyle = bubble;
+        ctx.beginPath();
+        ctx.arc(0, 0, br, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.beginPath();
+        ctx.ellipse(-br * 0.4, -br * 0.45, br * 0.22, br * 0.1, -0.6, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
     ctx.rotate(game.cake.rotation * Math.PI / 180);
+    if (game.effects.shrink) {
+        ctx.scale(CONFIG.powerups.shrinkScale, CONFIG.powerups.shrinkScale);
+    }
+    if (game.effects.ghost) {
+        ctx.globalAlpha = 0.55;
+    } else if (game.grace > 0 && Math.floor(game.frames / 5) % 2) {
+        ctx.globalAlpha = 0.35;
+    }
 
     const s = CONFIG.cake.size;
     const half = s / 2;
@@ -591,18 +1027,24 @@ function drawCandle(ctx, candle) {
     const x = candle.x;
     const width = CONFIG.candles.width;
     const zone = CONFIG.candles.flameZone;
+    const lit = !candle.snuffed;
+
+    ctx.save();
+    if (!lit) ctx.globalAlpha = 0.35;
 
     // Hanging candle (flipped vertically so the flame points down into the gap)
     ctx.save();
     ctx.translate(x, candle.topHeight - zone);
     ctx.scale(1, -1);
-    drawCandleStick(ctx, width, candle.topHeight - zone, candle.flicker);
+    drawCandleStick(ctx, width, candle.topHeight - zone, candle.flicker, lit);
     ctx.restore();
 
     // Standing candle
     ctx.save();
     ctx.translate(x, candle.bottomY + zone);
-    drawCandleStick(ctx, width, groundY() - candle.bottomY - zone, candle.flicker + 1.3);
+    drawCandleStick(ctx, width, groundY() - candle.bottomY - zone, candle.flicker + 1.3, lit);
+    ctx.restore();
+
     ctx.restore();
 }
 
@@ -632,7 +1074,7 @@ function drawFloor(ctx) {
 // Draw Candle Stick
 // Local coordinates: origin at the centre of the wax rim (wick end), the body
 // extends toward +y, and the flame extends toward -y.
-function drawCandleStick(ctx, w, len, phase) {
+function drawCandleStick(ctx, w, len, phase, lit) {
     const cx = w / 2;
     const rimRy = w * 0.16;
     const zone = CONFIG.candles.flameZone;
@@ -717,8 +1159,22 @@ function drawCandleStick(ctx, w, len, phase) {
     ctx.quadraticCurveTo(cx + 2, -5, cx, -8);
     ctx.stroke();
 
-    // --- Flame -----------------------------------------------------------
     const t = performance.now() / 1000;
+
+    if (!lit) {
+        // Wisp of smoke curling off the blown-out wick
+        ctx.strokeStyle = 'rgba(220, 220, 230, 0.8)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, -8);
+        for (let i = 1; i <= 6; i++) {
+            ctx.lineTo(cx + Math.sin(t * 3 + phase + i * 0.9) * 3, -8 - i * 3.5);
+        }
+        ctx.stroke();
+        return;
+    }
+
+    // --- Flame -----------------------------------------------------------
     const flick = Math.sin(t * 13 + phase) * 0.07 + Math.sin(t * 21 + phase * 1.7) * 0.04;
     const sway = Math.sin(t * 9 + phase) * 1.2;
     const baseY = -6;
@@ -785,6 +1241,7 @@ function drawDrip(ctx, x, y, radius, length) {
 // Game Over
 function gameOver() {
     game.running = false;
+    game.toasts = [];
 
     // Update high score
     if (game.score > game.highScore) {
@@ -843,6 +1300,24 @@ function playSound(type) {
     } else if (type === 'score') {
         oscillator.frequency.value = 800;
         gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.2);
+    } else if (type === 'powerup' || type === 'revive') {
+        // Rising chime; the revive one is longer and higher
+        const end = type === 'revive' ? 0.45 : 0.25;
+        oscillator.type = 'triangle';
+        oscillator.frequency.setValueAtTime(500, audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(type === 'revive' ? 1600 : 1200, audioContext.currentTime + end);
+        gainNode.gain.setValueAtTime(0.25, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + end);
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + end);
+    } else if (type === 'shield') {
+        oscillator.type = 'square';
+        oscillator.frequency.setValueAtTime(700, audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(150, audioContext.currentTime + 0.2);
+        gainNode.gain.setValueAtTime(0.12, audioContext.currentTime);
         gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
         oscillator.start(audioContext.currentTime);
         oscillator.stop(audioContext.currentTime + 0.2);
