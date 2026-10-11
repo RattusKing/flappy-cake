@@ -754,6 +754,8 @@ function drawPickup(ctx, p) {
     ctx.font = `${Math.round(r * 1.1)}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    // Colour emoji ignore fillStyle; this keeps monochrome fallbacks visible
+    ctx.fillStyle = '#fff';
     ctx.fillText(def.icon, 0, 1);
     ctx.restore();
 }
@@ -821,6 +823,7 @@ function drawPowerupHud(ctx) {
         ctx.font = '15px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#fff';
         ctx.fillText(def.icon, x, y + 1);
         ctx.restore();
     });
